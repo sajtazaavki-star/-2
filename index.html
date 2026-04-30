@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Вязалочка PRO — Плеер и Секции</title>
+    
+    <!-- Подключение библиотек -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.6.0/dist/confetti.browser.min.js"></script>
+    
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;900&display=swap');
+        
+        body { 
+            background-color: #fff1f2; 
+            font-family: 'Nunito', sans-serif; 
+            touch-action: manipulation;
+            overscroll-behavior: none;
+            margin: 0;
+        }
+
+        .glass { background: rgba(255, 255, 255, 0.9); backdrop-filter: blur(10px); }
+
+        .mic-active {
+            animation: pulse-rose 1.5s infinite;
+            background-color: #e11d48 !important;
+            color: white !important;
+        }
+
+        @keyframes pulse-rose {
+            0% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0.4); }
+            70% { box-shadow: 0 0 0 15px rgba(225, 29, 72, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(225, 29, 72, 0); }
+        }
+
+        .timer-blink { animation: blink 2s infinite; }
+        @keyframes blink { 50% { opacity: 0.5; } }
+
+        ::-webkit-scrollbar { width: 0px; }
+
+        .card-anim { animation: slideUp 0.3s ease-out forwards; }
+        @keyframes slideUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .pop-up {
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 100;
+            background: #e11d48;
+            color: white;
+            padding: 12px 30px;
+            border-radius: 99px;
+            font-weight: 900;
+            box-shadow: 0 10px 25px rgba(225, 29, 72, 0.3);
+            animation: popIn 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        @keyframes popIn { 0% { transform: scale(0.5); opacity: 0; } 100% { transform: scale(1); opacity: 1; } }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef } = React;
+
+        const Icons = {
+            Plus: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>,
+            Mic: () => <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path><path d="M19 10v2a7 7 0 0 1-14 0v-2"></path><line x1="12" y1="19" x2="12" y2="23"></line><line x1="8" y1="23" x2="16" y2="23"></line></svg>,
+            Trash: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>,
+            Play: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>,
+            Pause: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16"></rect><rect x="14" y="4" width="4" height="16"></rect></svg>,
+            Check: () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"></polyline></svg>,
+            Music: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+        };
+
+        const CATEGORIES = [
+            { id: 'socks', label: 'Носки', icon: '🧦' },
+            { id: 'hats', label: 'Шапки', icon: '🧶' },
+            { id: 'clothing', label: 'Одежда', icon: '🧥' },
+            { id: 'other', label: 'Разное', icon: '✨' },
+        ];
+
+        const App = () => {
+            const [projects, setProjects] = useState(() => {
+                const saved = localStorage.getItem('knit_app_final_v10');
+                return saved ? JSON.parse(saved) : [];
+            });
+            
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [isListening, setIsListening] = useState(false);
+            const [feedback, setFeedback] = useState('');
+            
+            // Плеер
+            const [isPlayerOpen, setIsPlayerOpen] = useState(false);
+            const [audioSrc, setAudioSrc] = useState(null);
+            const [isPlaying, setIsPlaying] = useState(false);
+            const audioRef = useRef(null);
+
+            const projectsRef = useRef(projects);
+            const isListeningRef = useRef(isListening);
+
+            useEffect(() => { 
+                projectsRef.current = projects; 
+                localStorage.setItem('knit_app_final_v10', JSON.stringify(projects));
+            }, [projects]);
+
+            useEffect(() => { isListeningRef.current = isListening; }, [isListening]);
+
+            // Таймер
+            useEffect(() => {
+                const interval = setInterval(() => {
+                    setProjects(prev => prev.map(p => 
+                        p.isTimerRunning ? { ...p, timeSpent: (p.timeSpent || 0) + 1 } : p
+                    ));
+                }, 1000);
+                return () => clearInterval(interval);
+            }, []);
+
+            // Голос
+            useEffect(() => {
+                if (!('webkitSpeechRecognition' in window)) return;
+                const rec = new window.webkitSpeechRecognition();
+                rec.continuous = true;
+                rec.lang = 'ru-RU';
+
+                rec.onresult = (e) => {
+                    const text = e.results[e.results.length - 1][0].transcript.toLowerCase();
+                    const trigger = ['дальше', 'плюс', 'ряд', 'еще', 'ещё', 'добавь'].some(k => text.includes(k));
+                    
+                    if (trigger) {
+                        const activeProject = projectsRef.current.find(p => p.counters.some(c => !c.isFinished));
+                        if (activeProject) {
+                            const activeCounters = activeProject.counters.filter(c => !c.isFinished);
+                            const targetC = activeCounters[activeCounters.length - 1];
+                            if (targetC) {
+                                updateCount(activeProject.id, targetC.id, 1);
+                                setFeedback('+1 ряд!');
+                                setTimeout(() => setFeedback(''), 1500);
+                            }
+                        }
+                    }
+                };
+                rec.onend = () => { if (isListeningRef.current) try { rec.start(); } catch(e) {} };
+                window.recognition = rec;
+            }, []);
+
+            const toggleMic = () => {
+                if (!window.recognition) return;
+                if (isListening) { window.recognition.stop(); setIsListening(false); }
+                else { window.recognition.start(); setIsListening(true); }
+            };
+
+            const updateCount = (pid, cid, delta) => {
+                setProjects(prev => prev.map(p => {
+                    if (p.id === pid) {
+                        const newC = p.counters.map(c => {
+                            if (c.id === cid) {
+                                const val = Math.max(0, c.count + delta);
+                                if (delta > 0 && val > 0 && val % 10 === 0) confetti({ particleCount: 20, origin: { y: 0.8 } });
+                                return { ...c, count: val };
+                            }
+                            return c;
+                        });
+                        return { ...p, counters: newC };
+                    }
+                    return p;
+                }));
+            };
+
+            const finishCounter = (pid, cid) => {
+                setProjects(prev => prev.map(p => {
+                    if (p.id === pid) {
+                        return { ...p, counters: p.counters.map(c => c.id === cid ? { ...c, isFinished: true } : c) };
+                    }
+                    return p;
+                }));
+                confetti({ particleCount: 40, spread: 70, origin: { y: 0.8 } });
+            };
+
+            const addProject = (name, cat) => {
+                const newP = {
+                    id: Date.now(),
+                    name,
+                    category: cat,
+                    timeSpent: 0,
+                    isTimerRunning: false,
+                    counters: [{ id: Date.now(), name: 'Основной этап', count: 0, isFinished: false }]
+                };
+                setProjects([newP, ...projects]);
+                setIsModalOpen(false);
+            };
+
+            const addPart = (pid, name) => {
+                if (!name) return;
+                setProjects(prev => prev.map(p => 
+                    p.id === pid ? { ...p, counters: [...p.counters, { id: Date.now(), name, count: 0, isFinished: false }] } : p
+                ));
+            };
+
+            const deleteP = (id) => {
+                if (confirm("Удалить проект целиком?")) setProjects(projects.filter(p => p.id !== id));
+            };
+
+            const handleAudioUpload = (e) => {
+                const file = e.target.files[0];
+                if (file) {
+                    const url = URL.createObjectURL(file);
+                    setAudioSrc(url);
+                    setIsPlaying(true);
+                    setIsPlayerOpen(true);
+                }
+            };
+
+            const formatTime = (s) => {
+                const h = Math.floor(s/3600), m = Math.floor((s%3600)/60), sec = s%60;
+                return `${h>0?h+':':''}${m < 10 && h > 0 ? '0' + m : m}:${sec < 10 ? '0' + sec : sec}`;
+            };
+
+            return (
+                <div className="min-h-screen max-w-md mx-auto flex flex-col pb-24">
+                    
+                    {/* HEADER */}
+                    <header className="sticky top-0 z-50 glass p-5 flex justify-between items-center border-b border-rose-100 shadow-sm">
+                        <div className="flex items-center gap-3">
+                            <span className="text-3xl">🧶</span>
+                            <div>
+                                <h1 className="text-xl font-black text-rose-600 leading-none tracking-tighter">Вязалочка PRO</h1>
+                                <p className="text-[10px] font-bold text-rose-300 uppercase mt-1 tracking-widest flex items-center gap-1">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse"></span> Сохранение активно
+                                </p>
+                            </div>
+                        </div>
+                        <div className="flex gap-2">
+                            <button 
+                                onClick={() => setIsPlayerOpen(!isPlayerOpen)}
+                                className={`p-4 rounded-full transition-all border ${isPlayerOpen ? 'bg-rose-600 text-white border-rose-600' : 'bg-white text-rose-300 border-rose-100 shadow-sm'}`}
+                            >
+                                <Icons.Music />
+                            </button>
+                            <button onClick={toggleMic} className={`p-4 rounded-full transition-all duration-300 ${isListening ? 'mic-active' : 'bg-white text-rose-300 border border-rose-100 shadow-sm'}`}>
+                                <Icons.Mic />
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* MUSIC PLAYER PANEL */}
+                    {isPlayerOpen && (
+                        <div className="sticky top-[81px] z-40 bg-white border-b border-rose-100 p-5 shadow-lg animate-in slide-in-from-top duration-300">
+                            <div className="flex flex-col gap-3">
+                                <div className="flex items-center justify-between">
+                                    <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Аудио-фон (Музыка или Видео)</span>
+                                    <button onClick={() => setIsPlayerOpen(false)} className="text-rose-500 font-bold text-xs">Скрыть</button>
+                                </div>
+                                {audioSrc ? (
+                                    <div className="flex items-center gap-4 bg-rose-50 rounded-3xl p-4 border border-rose-100">
+                                        <button 
+                                            onClick={() => {
+                                                if (isPlaying) audioRef.current.pause();
+                                                else audioRef.current.play();
+                                                setIsPlaying(!isPlaying);
+                                            }}
+                                            className="w-12 h-12 bg-rose-600 text-white rounded-full flex items-center justify-center shadow-lg active:scale-90 transition"
+                                        >
+                                            {isPlaying ? <Icons.Pause /> : <Icons.Play />}
+                                        </button>
+                                        <div className="flex-1">
+                                            <audio ref={audioRef} src={audioSrc} autoPlay onEnded={() => setIsPlaying(false)} className="hidden" />
+                                            <div className="h-1.5 bg-rose-200 rounded-full w-full overflow-hidden">
+                                                <div className="h-full bg-rose-600 w-1/3 animate-pulse"></div>
+                                            </div>
+                                            <p className="text-[10px] font-black text-rose-500 mt-2 uppercase tracking-tighter">Файл проигрывается...</p>
+                                        </div>
+                                        <label className="p-2 text-rose-300 cursor-pointer">
+                                            <Icons.Plus />
+                                            <input type="file" accept="audio/*,video/*" className="hidden" onChange={handleAudioUpload} />
+                                        </label>
+                                    </div>
+                                ) : (
+                                    <label className="flex flex-col items-center justify-center border-2 border-dashed border-rose-100 rounded-3xl p-8 hover:bg-rose-50 transition cursor-pointer">
+                                        <span className="text-4xl mb-2">🎶</span>
+                                        <span className="text-xs font-bold text-rose-400">Нажми, чтобы добавить музыку или видео</span>
+                                        <input type="file" accept="audio/*,video/*" className="hidden" onChange={handleAudioUpload} />
+                                    </label>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {feedback && <div className="pop-up">{feedback}</div>}
+
+                    {/* MAIN LIST */}
+                    <main className="p-4 space-y-6">
+                        {projects.map(p => {
+                            const activeRows = p.counters.filter(c => !c.isFinished).reduce((a, b) => a + b.count, 0);
+                            const finishedC = p.counters.filter(c => c.isFinished);
+                            const activeC = p.counters.filter(c => !c.isFinished);
+
+                            return (
+                                <div key={p.id} className="card-anim bg-white rounded-[40px] shadow-xl shadow-rose-200/20 border-2 border-rose-50 overflow-hidden">
+                                    <div className="p-6 bg-rose-50/40 border-b border-rose-50">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-[10px] font-black bg-white text-rose-500 px-3 py-1 rounded-full border border-rose-100 uppercase">
+                                                    {CATEGORIES.find(c => c.id === p.category)?.label}
+                                                </span>
+                                                <button onClick={() => setProjects(prev => prev.map(x => x.id === p.id ? {...x, isTimerRunning: !x.isTimerRunning} : x))} className={`flex items-center gap-1.5 px-3 py-1 rounded-full text-[11px] font-black transition-all ${p.isTimerRunning ? 'bg-rose-500 text-white timer-blink' : 'bg-white text-gray-400 border border-gray-100 shadow-sm'}`}>
+                                                    {p.isTimerRunning ? <Icons.Pause /> : <Icons.Play />}
+                                                    {formatTime(p.timeSpent || 0)}
+                                                </button>
+                                            </div>
+                                            <button onClick={() => deleteP(p.id)} className="text-rose-100 p-2"><Icons.Trash /></button>
+                                        </div>
+                                        <div className="flex justify-between items-end">
+                                            <h2 className="text-2xl font-black text-gray-800 tracking-tight leading-tight max-w-[65%]">{p.name}</h2>
+                                            <div className="text-right">
+                                                <div className="text-2xl font-black text-rose-600">{activeRows}</div>
+                                                <div className="text-[10px] text-rose-300 font-bold uppercase tracking-tighter">Рядов в работе</div>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <div className="p-6 space-y-5">
+                                        {activeC.map(c => (
+                                            <div key={c.id} className="bg-gray-50/80 rounded-3xl p-5 border border-gray-100">
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <p className="text-[11px] font-black text-gray-400 uppercase tracking-widest">{c.name}</p>
+                                                    <div className="text-4xl font-black text-rose-600 tabular-nums">{c.count}</div>
+                                                </div>
+                                                <div className="flex gap-2 mb-4">
+                                                    <button onClick={() => updateCount(p.id, c.id, -1)} className="w-14 h-14 bg-white rounded-2xl border border-gray-100 text-gray-400 font-bold active:bg-gray-100 transition shadow-sm text-2xl flex items-center justify-center">−</button>
+                                                    <button onClick={() => updateCount(p.id, c.id, 2)} className="flex-1 h-14 bg-rose-100 text-rose-600 rounded-2xl font-black text-[10px] border-2 border-rose-200 active:scale-95 transition uppercase tracking-widest">+2 ряда</button>
+                                                    <button onClick={() => updateCount(p.id, c.id, 1)} className="w-16 h-14 bg-rose-600 text-white rounded-2xl font-bold flex items-center justify-center active:scale-95 transition shadow-lg shadow-rose-200">
+                                                        <Icons.Plus />
+                                                    </button>
+                                                </div>
+                                                <button 
+                                                    onClick={() => finishCounter(p.id, c.id)}
+                                                    className="w-full py-3 bg-white border border-rose-100 rounded-xl text-[10px] font-black text-rose-400 uppercase tracking-widest flex items-center justify-center gap-2 hover:bg-rose-50 transition"
+                                                >
+                                                    <Icons.Check /> Закончить деталь
+                                                </button>
+                                            </div>
+                                        ))}
+
+                                        <div className="flex gap-2 pt-2">
+                                            <input id={`in-${p.id}`} className="flex-1 bg-white border-2 border-gray-100 rounded-2xl px-4 py-3 text-sm outline-none focus:border-rose-300 font-bold transition-all" placeholder="Новая деталь (напр. Рукав 2)" />
+                                            <button onClick={() => { const el = document.getElementById(`in-${p.id}`); if(el.value) { addPart(p.id, el.value); el.value = ''; } }} className="bg-gray-800 text-white px-5 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest">+ Часть</button>
+                                        </div>
+
+                                        {finishedC.length > 0 && (
+                                            <div className="mt-6 pt-6 border-t border-dashed border-gray-200">
+                                                <p className="text-[10px] font-black text-gray-300 uppercase tracking-widest mb-3">Завершенные детали:</p>
+                                                <div className="space-y-2">
+                                                    {finishedC.map(fc => (
+                                                        <div key={fc.id} className="flex justify-between items-center bg-gray-50/40 px-4 py-2.5 rounded-2xl border border-gray-100">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-emerald-500"><Icons.Check /></span>
+                                                                <span className="text-xs font-bold text-gray-500">{fc.name}</span>
+                                                            </div>
+                                                            <span className="text-xs font-black text-gray-400">{fc.count} ряд.</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </main>
+
+                    <button onClick={() => setIsModalOpen(true)} className="fixed bottom-8 right-8 w-16 h-16 bg-rose-600 text-white rounded-full shadow-2xl flex items-center justify-center active:scale-90 transition-transform z-40 border-4 border-white shadow-rose-300">
+                        <Icons.Plus />
+                    </button>
+
+                    {isModalOpen && (
+                        <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-rose-950/40 backdrop-blur-sm">
+                            <div className="bg-white w-full max-w-sm rounded-[40px] p-8 shadow-2xl animate-in slide-in-from-bottom duration-300">
+                                <h2 className="text-2xl font-black text-gray-800 mb-6 flex items-center gap-2">Новый проект 🧶</h2>
+                                <input id="pn-input" className="w-full bg-gray-50 border-2 border-gray-100 focus:border-rose-500 rounded-3xl p-5 mb-4 outline-none font-black text-lg" placeholder="Название..." autoFocus />
+                                <div className="grid grid-cols-2 gap-2 mb-8">
+                                    {CATEGORIES.map(c => (
+                                        <button key={c.id} onClick={() => window._activeCat = c.id} className="p-4 rounded-3xl border-2 border-gray-100 focus:border-rose-500 focus:bg-rose-50 text-sm font-black transition flex flex-col items-center gap-1">
+                                            <span className="text-2xl">{c.icon}</span>
+                                            {c.label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <div className="flex gap-4">
+                                    <button onClick={() => setIsModalOpen(false)} className="flex-1 py-4 font-black text-gray-400 uppercase text-xs">Отмена</button>
+                                    <button onClick={() => {
+                                        const v = document.getElementById('pn-input').value;
+                                        if(v) addProject(v, window._activeCat || 'other');
+                                    }} className="flex-1 py-4 bg-rose-600 text-white rounded-3xl font-black shadow-lg shadow-rose-200 uppercase text-xs tracking-widest">Создать</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
